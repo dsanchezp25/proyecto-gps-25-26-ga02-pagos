@@ -60,8 +60,24 @@ def get_cart_summary(self, request):
     """
     Endpoint extra para ver el carrito COMPLETO (summary)
     GET /api/v1/cart-items/summary/
+
+    Se puede pasar la región como query param opcional 'region'
+    Ejemplo: /api/v1/cart-items/summary/?region=ES-CN
+
     """
     cart, created = ShoppingCart.objects.get_or_create(user=self.request.user)
-    serializer = CartItemSerializer(cart)
+
+    # 1. Obtener la región desde la url
+    region_code = request.query_params.get('region', None)
+
+    # 2. Preparar el 'context' para el serializer
+    serializer_context = {
+        'request': request,
+        'region_code': region_code
+    }
+
+    # 3. Serializar el carrito completo
+    serializer = ShoppingCartSerializer(cart, context=serializer_context)
+
     return Response(serializer.data, status=status.HTTP_200_OK)
 
