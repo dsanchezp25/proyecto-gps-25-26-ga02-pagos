@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import ShoppingCart, CartItem
+from pricing.services import calculate_cart_totals
 
 class CartItemSerializer(serializers.ModelSerializer):
     """
@@ -25,14 +26,39 @@ class ShoppingCartSerializer (serializers.ModelSerializer):
     # Usamos el 'related_name' (items) que definimos en el modelo
     items = CartItemSerializer(many=True, read_only=True)
 
-    # Añadimos un campo 'total' calculado
-    total_price = serializers.SerializerMethodField()
+    subtotal = serializers.SerializerMethodField()
+    tax_rate_name = serializers.SerializerMethodField()
+    tax_rate_percent = serializers.SerializerMethodField()
+    total = serializers.SerializerMethodField()
 
     class Meta:
         model = ShoppingCart
-        fields = ['id', 'user', 'created_at', 'updated_at', 'items', 'total_price']
-        read_only_fields = ['id', 'user', 'created_at', 'updated_at', 'items', 'total_price']
+        fields = ['id', 'user', 'created_at', 'updated_at', 'items',
+                  'subtotal', 'tax_rate_name', 'tax_rate_percent', 'total']
+        read_only_fields = fields
 
-    def get_total_price(self, obj):
-        # Calcula el total: precio * cantidad para cada ítem
-        total = sum(item.price_at_addition * item.quantity for item in obj.items.all())
+    def get_totals(self, obj):
+        # 'context' es un 'state bag' que podemos usar en el serializer.
+        if not hasattr(self, '_totals'):
+            #Sacamos la region_code del context que pasamos desde la vista
+            region_code = self.context.get('region_code', None)
+
+            # Llamamos al servicio para calcular los totales
+            self._totals = calculate_cart_totals(obj, region_code)  # obj es el ShoppingCart
+        return self._totals
+
+    # --- METODOS PARA CADA CAMPO DE TOTALIZACIÓN ---
+    def get_subtotal(self, obj):
+        return self.get_totals(obj)["subtotal"]
+
+    def get_tax_rate_name(self, obj):
+        return self.get_totals(obj)["tax_rate_name"]
+
+    def get_tax_rate_percent(self, obj):
+        return self.get_totals(obj)["tax_rate_percent"]
+
+    def get_tax_amount(self, obj):
+        return self.get_totals(obj)["tax_amount"]
+
+    def get_total(self, obj):
+        return self.get_totals(obj)["total"]
