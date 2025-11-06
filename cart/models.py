@@ -6,6 +6,17 @@ class ShoppingCart(models.Model):
         Modelo que representa el carrito de un usuario.
         Usamos OneToOneField para asegurar que cada usuario tenga un solo carrito.
     """
+    class CartStatus(models.TextChoices):
+        ACTIVE = 'active', 'Activo'
+        ORDERED = 'ordered', 'Ordenado'
+
+    status = models.CharField(
+        max_length=10,
+        choices=CartStatus.choices,
+        default=CartStatus.ACTIVE
+    )
+
+
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
