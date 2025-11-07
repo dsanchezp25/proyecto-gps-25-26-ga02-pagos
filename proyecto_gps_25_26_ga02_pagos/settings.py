@@ -41,7 +41,8 @@ INSTALLED_APPS = [
     'rest_framework',
 
     'cart',
-    'pricing'
+    'pricing',
+    'orders'
 ]
 
 MIDDLEWARE = [
@@ -126,3 +127,7 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Configuración para "Almacenamiento" de ficheros (Facturas PDF)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
