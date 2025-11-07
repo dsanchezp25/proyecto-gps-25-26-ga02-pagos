@@ -42,7 +42,8 @@ INSTALLED_APPS = [
 
     'cart',
     'pricing',
-    'orders'
+    'orders',
+    'payments',
 ]
 
 MIDDLEWARE = [
@@ -131,3 +132,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Configuración para "Almacenamiento" de ficheros (Facturas PDF)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Claves de Stripe
+STRIPE_PUBLIC_KEY = 'pk_test_51Hxxxxxx' # Reemplaza con tu clave pública de Stripe
+STRIPE_SECRET_KEY = "sk_test_..." # Reemplaza con tu clave secreta de Stripe
+STRIPE_WEBHOOK_SECRET = "whsec_..." # Lo usaremos para el webhook
