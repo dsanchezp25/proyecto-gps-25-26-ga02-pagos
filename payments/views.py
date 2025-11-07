@@ -1,11 +1,19 @@
 from rest_framework import status, generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 import stripe
 import logging
 from django.conf import settings
 from .models import PaymentMethod
-from .serializers import AddPaymentMethodRequestSerializer, PaymentMethodSerializer
+from .serializers import (
+    AddPaymentMethodRequestSerializer,
+    PaymentMethodSerializer,
+    PaymentIntentRequestSerializer,
+    PaymentIntentResponseSerializer,
+)
+from orders.models import Order
+
 
 # Configurar Stripe
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -94,3 +102,73 @@ class PaymentMethodDestroyAPIView(generics.DestroyAPIView):
         #    logger.warning(f"No se pudo des-adjuntar PM de Stripe: {e}")
 
         instance.delete()
+
+
+class PaymentIntentCreateAPIView(APIView):
+    """
+        Corresponde a: POST /api/v1/payments/intent
+        Crea una "intención de pago" en el PSP (Stripe).
+        """
+    permission_classes = [IsAuthenticated]
+    serializer_class = PaymentIntentRequestSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        validated_data = serializer.validated_data
+        order_id = validated_data['order_id']
+        payment_method_id = validated_data['payment_method_id']  # ID interno (pm_abc)
+        user = request.user
+
+        try:
+            # 1. Validar que la Orden existe y es del usuario
+            order = Order.objects.get(
+                order_id=order_id,
+                user=user,
+                status=Order.OrderStatus.PENDING
+            )
+
+            # 2. Validar que el Método de Pago existe y es del usuario
+            payment_method = PaymentMethod.objects.get(
+                payment_method_id=payment_method_id,
+                user=user
+            )
+
+            # 3. Convertir el 'amount' (Decimal) a céntimos (integer) para Stripe
+            amount_in_cents = int(order.amount * 100)
+
+            # 4. Crear el Payment Intent en Stripe
+            intent = stripe.PaymentIntent.create(
+                amount=amount_in_cents,
+                currency=order.currency.lower(),
+                customer=None,  # TODO: Añadir stripe_customer_id del perfil de usuario
+                payment_method=payment_method.psp_ref,  # El 'pm_...' REAL de Stripe
+                confirm=True,  # Intentamos confirmar el pago inmediatamente
+                automatic_payment_methods={"enabled": True, "allow_redirects": "never"},  # Para pagos "off-session"
+                description=f"Pago por Orden {order.order_id}",
+            )
+
+            # 5. Devolver el client_secret
+            response_data = {
+                "provider": "stripe",
+                "client_secret": intent.client_secret,
+                "payment_id": intent.id
+            }
+            response_serializer = PaymentIntentResponseSerializer(data=response_data)
+            response_serializer.is_valid(raise_exception=True)
+
+            return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+        except Order.DoesNotExist:
+            return Response({"error": "Orden no encontrada o ya procesada."}, status=status.HTTP_404_NOT_FOUND)
+        except PaymentMethod.DoesNotExist:
+            return Response({"error": "Método de pago no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+        except stripe.error.CardError as e:
+            # El pago fue declinado por la tarjeta
+            logger.warning(f"Pago (CardError) fallido para orden {order_id}: {e.user_message}")
+            return Response({"error": e.user_message}, status=status.HTTP_402_PAYMENT_REQUIRED)
+        except stripe.error.StripeError as e:
+            logger.error(f"Error de Stripe al crear PaymentIntent: {e}")
+            return Response({"error": "Error del proveedor de pago"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

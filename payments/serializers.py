@@ -22,3 +22,14 @@ class PaymentMethodSerializer(serializers.ModelSerializer):
             'exp_yy',
             'is_default'
         ]
+
+
+class PaymentIntentRequestSerializer(serializers.Serializer):
+    order_id = serializers.UUIDField()
+    payment_method_id = serializers.CharField(max_length=100)
+    provider = serializers.CharField(max_length=50, default="stripe", required=False)
+
+class PaymentIntentResponseSerializer(serializers.Serializer):
+    provider = serializers.CharField()
+    client_secret = serializers.CharField()
+    payment_id = serializers.CharField() # El ID del PaymentIntent de Stripe

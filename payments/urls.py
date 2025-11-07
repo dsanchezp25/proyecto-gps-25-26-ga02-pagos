@@ -1,7 +1,8 @@
 from django.urls import path
 from .views import (
     PaymentMethodListCreateAPIView,
-    PaymentMethodDestroyAPIView
+    PaymentMethodDestroyAPIView,
+    PaymentIntentCreateAPIView
 )
 
 urlpatterns = [
@@ -14,4 +15,9 @@ urlpatterns = [
     path('payment-methods/<str:payment_method_id>/',
          PaymentMethodDestroyAPIView.as_view(),
          name='payment-method-destroy'),
+
+    # POST /api/v1/payments/intent/
+    path('payments/intent/',
+         PaymentIntentCreateAPIView.as_view(),
+         name='payment-intent-create'),
 ]
