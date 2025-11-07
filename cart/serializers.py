@@ -2,63 +2,57 @@ from rest_framework import serializers
 from .models import ShoppingCart, CartItem
 from pricing.services import calculate_cart_totals
 
-class CartItemSerializer(serializers.ModelSerializer):
-    """
-        Serializer para Añadir/Listar/Actualizar/Eliminar ítems del carrito
-    """
+# Serializer para añadir un ítem al carrito
+class CartItemAddSerializer(serializers.ModelSerializer):
     class Meta:
         model = CartItem
-        # El campo 'cart' se asginará automáticamente en la vista
-        # basandonos en el carrito del usuario autenticado
+        fields = ['product_id', 'quantity']
+
+# Serializer para mostrar el carrito completo
+class CartItemDisplaySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CartItem
         fields = ['id', 'product_id', 'quantity', 'price_at_addition']
-        read_only_fields = ['id']
 
-    def validate_product_id(self, value):
-        if value <= 0:
-            raise serializers.ValidationError("El product_id debe ser un entero positivo.")
-        return value
+# Serializer para MOSTRAR el carrito de compras completo
+class ShoppingCartSerializer(serializers.ModelSerializer):
+    items = CartItemDisplaySerializer(many=True, read_only=True)
 
-
-class ShoppingCartSerializer (serializers.ModelSerializer):
-    """
-        Serializer para ver el carrito completo con sus ítems
-    """
-    # Usamos el 'related_name' (items) que definimos en el modelo
-    items = CartItemSerializer(many=True, read_only=True)
-
+    # Campos calculados por el servicio pricing
     subtotal = serializers.SerializerMethodField()
     tax_rate_name = serializers.SerializerMethodField()
     tax_rate_percent = serializers.SerializerMethodField()
+    tax_amount = serializers.SerializerMethodField()
     total = serializers.SerializerMethodField()
 
     class Meta:
         model = ShoppingCart
-        fields = ['id', 'user', 'created_at', 'updated_at', 'items',
-                  'subtotal', 'tax_rate_name', 'tax_rate_percent', 'total']
-        read_only_fields = fields
+        fields = [
+            'id', 'user', 'status', 'items',
+            'subtotal', 'tax_rate_name', 'tax_rate_percent',
+            'tax_amount', 'total'
+        ]
 
     def get_totals(self, obj):
-        # 'context' es un 'state bag' que podemos usar en el serializer.
-        if not hasattr(self, '_totals'):
-            #Sacamos la region_code del context que pasamos desde la vista
+        """
+        Llama al servicio de pricing para obtener los totales del carrito.
+        """
+        if not hasattr(self, '_totals'): # Cachear el resultado para no llamar varias veces
             region_code = self.context.get('region_code', None)
-
-            # Llamamos al servicio para calcular los totales
-            self._totals = calculate_cart_totals(obj, region_code)  # obj es el ShoppingCart
+            self._totals = calculate_cart_totals(obj, region_code)
         return self._totals
 
-    # --- METODOS PARA CADA CAMPO DE TOTALIZACIÓN ---
     def get_subtotal(self, obj):
-        return self.get_totals(obj)["subtotal"]
+        return self.get_totals(obj)['subtotal']
 
     def get_tax_rate_name(self, obj):
-        return self.get_totals(obj)["tax_rate_name"]
+        return self.get_totals(obj)['tax_rate_name']
 
     def get_tax_rate_percent(self, obj):
-        return self.get_totals(obj)["tax_rate_percent"]
+        return self.get_totals(obj)['tax_rate_percent']
 
     def get_tax_amount(self, obj):
-        return self.get_totals(obj)["tax_amount"]
+        return self.get_totals(obj)['tax_amount']
 
     def get_total(self, obj):
-        return self.get_totals(obj)["total"]
+        return self.get_totals(obj)['total']
