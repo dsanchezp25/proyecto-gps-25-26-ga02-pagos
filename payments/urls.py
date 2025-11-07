@@ -2,7 +2,8 @@ from django.urls import path
 from .views import (
     PaymentMethodListCreateAPIView,
     PaymentMethodDestroyAPIView,
-    PaymentIntentCreateAPIView
+    PaymentIntentCreateAPIView,
+    StripeWebhookAPIView
 )
 
 urlpatterns = [
@@ -20,4 +21,10 @@ urlpatterns = [
     path('payments/intent/',
          PaymentIntentCreateAPIView.as_view(),
          name='payment-intent-create'),
+
+    # POST /api/v1/webhooks/stripe/
+    # Webhook para recibir eventos de Stripe
+    path('webhooks/stripe/',
+         StripeWebhookAPIView.as_view(),
+         name='webhook-stripe'),
 ]

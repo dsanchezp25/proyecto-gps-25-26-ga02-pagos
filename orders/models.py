@@ -32,8 +32,6 @@ class Order(models.Model):
     tax_name = models.CharField(max_length=100, default="N/A")
     total_paid = models.DecimalField(max_digits=10, decimal_places=2)
 
-    invoice_pdf = models.FileField(upload_to='invoices/%Y/%m/%d', null=True, blank=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __dir__(self):
@@ -67,3 +65,14 @@ class OrderItem(models.Model):
     def __str__(self):
         return f"Producto {self.product_id} - Cantidad: {self.quantity} - Precio Unitario: {self.unit_price}"
 
+
+class Invoice(models.Model):
+    """
+    Representa la factura generada DESPUÉS de un pago exitoso.
+    """
+    order = models.OneToOneField(Order, on_delete=models.PROTECT, related_name='invoice')
+    invoice_pdf = models.FileField(upload_to='invoices/%Y/%m/')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Factura para Pedido {self.order.order_id}"

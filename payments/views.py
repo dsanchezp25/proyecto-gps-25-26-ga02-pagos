@@ -2,9 +2,12 @@ from rest_framework import status, generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.permissions import AllowAny
 import stripe
 import logging
 from django.conf import settings
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from .models import PaymentMethod
 from .serializers import (
     AddPaymentMethodRequestSerializer,
@@ -13,7 +16,7 @@ from .serializers import (
     PaymentIntentResponseSerializer,
 )
 from orders.models import Order
-
+from .services import handle_payment_intent_failed, handle_payment_intent_succeeded
 
 # Configurar Stripe
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -172,3 +175,51 @@ class PaymentIntentCreateAPIView(APIView):
         except stripe.error.StripeError as e:
             logger.error(f"Error de Stripe al crear PaymentIntent: {e}")
             return Response({"error": "Error del proveedor de pago"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@method_decorator(csrf_exempt, name='dispatch')  # Desactivar CSRF para este endpoint
+class StripeWebhookAPIView(APIView):
+    """
+    Corresponde a: POST /api/v1/webhooks/stripe
+    Recibe eventos de Stripe.
+    """
+    permission_classes = [AllowAny]  # Stripe no envía token de autenticación
+
+    def post(self, request, *args, **kwargs):
+        payload = request.body
+        sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
+        webhook_secret = settings.STRIPE_WEBHOOK_SECRET
+
+        try:
+            # 1. Verificar la firma de Stripe
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, webhook_secret
+            )
+        except ValueError as e:
+            # Payload inválido
+            logger.warning(f"Webhook (ValueError): {e}")
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        except stripe.error.SignatureVerificationError as e:
+            # Firma inválida
+            logger.warning(f"Webhook (SignatureError): {e}")
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. Obtener los datos del evento
+        event_type = event['type']
+        event_data = event['data']
+
+        # 3. Manejar el evento
+        if event_type == 'payment_intent.succeeded':
+            logger.info("Webhook: Recibido 'payment_intent.succeeded'")
+            handle_payment_intent_succeeded(event_data)
+
+        elif event_type == 'payment_intent.payment_failed':
+            logger.warning("Webhook: Recibido 'payment_intent.payment_failed'")
+            handle_payment_intent_failed(event_data)
+
+        # ... (manejar otros eventos como 'subscription.updated', etc.)
+
+        else:
+            logger.info(f"Webhook: Evento no manejado: {event_type}")
+
+        # 4. Devolver 200 a Stripe para confirmar recepción
+        return Response(status=status.HTTP_200_OK)
