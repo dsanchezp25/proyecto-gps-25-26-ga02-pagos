@@ -11,7 +11,7 @@ urlpatterns = [
          CartRetrieveAPIView.as_view(),
          name='cart-retrieve'),
 
-    # POST /api/v1/cart/items/ (Añadir item al carrito)
+    # POSpip freeze > requirements.txtT /api/v1/cart/items/ (Añadir item al carrito)
     path('cart/items/',
          CartItemAddAPIView.as_view(),
          name='cart-item-add'),

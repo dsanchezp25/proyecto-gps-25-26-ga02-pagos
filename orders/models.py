@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 from django.conf import settings
+from typing import Any
 
 class Order(models.Model):
     """
@@ -30,7 +31,7 @@ class Order(models.Model):
     tax_total = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
     tax_name = models.CharField(max_length=100, default="N/A")
-    total_paid = models.DecimalField(max_digits=10, decimal_places=2)
+    total_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
 
     created_at = models.DateTimeField(auto_now_add=True)
 

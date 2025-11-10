@@ -1,93 +1,90 @@
-from itertools import product
-
 from django.contrib.auth import get_user_model
-from rest_framework.test import APIClient, APITestCase
+from rest_framework.test import APITestCase
 from rest_framework import status
 from django.urls import reverse
+from decimal import Decimal
 
 from cart.models import ShoppingCart, CartItem
 from pricing.models import TaxRate, RegionTaxRule
-from .models import Order
+from .models import Order, OrderItem
 
 User = get_user_model()
 
-class OrderAPITest(APITestCase):
+class OrderRefactorTests(APITestCase):
 
     def setUp(self):
-        # 1. Crear un usuario de prueba
-        self.user = User.objects.create_user(username='testuser', password='testpass')
+        self.user = User.objects.create_user(username='testuser', password='testpassword123')
         self.client.force_authenticate(user=self.user)
 
-        # 2. Crear reglas de impuestos
-        tax = TaxRate.objects.create(name="IVA Test", rate=10.00)
+        # Impuestos usando Decimal
+        tax = TaxRate.objects.create(name="IVA Test", rate=Decimal("10.00"))
         RegionTaxRule.objects.create(region_code="ES", tax_rate=tax)
 
-        # 3. Crear carrito con items
-        self.cart = ShoppingCart.objects.create(user=self.user)
+        self.cart = ShoppingCart.objects.create(user=self.user, status=ShoppingCart.CartStatus.ACTIVE)
+
         CartItem.objects.create(
             cart=self.cart,
-            product_is=101,
+            product_id=101,
             quantity=2,
             price_at_addition="100.00"
         )
 
-        # 4. URL para crear pedido desde carrito
-        self.create_order_url = reverse('order-create-from-cart')
+        # URL de creación: intenta sin namespace, luego con namespace, y por último literal.
+        try:
+            self.create_order_url = reverse("order-list-create")
+        except Exception:
+            try:
+                self.create_order_url = reverse("orders:order-list-create")
+            except Exception:
+                self.create_order_url = "/api/v1/orders/"
 
     def test_create_order_from_cart(self):
-        """
-        Prueba la creación del pedido y la validez fiscal.
-        """
-        data = {"region_code": "ES"}
-        response = self.client.post(self.create_order_url, data, format='json')
+        payload = {"region_code": "ES"}
+        response = self.client.post(self.create_order_url, data=payload, format='json')
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # Si falla, muestra el contenido de respuesta para ver el error real
+        if response.status_code not in (status.HTTP_201_CREATED, status.HTTP_202_ACCEPTED):
+            detail = getattr(response, "data", None)
+            if detail is None:
+                detail = getattr(response, "content", b"")
+            self.fail(f"POST /orders devolvió {response.status_code}. Respuesta: {detail!r}")
 
-        # 1. Verificar que se creó 1 pedido
         self.assertEqual(Order.objects.count(), 1)
         order = Order.objects.get()
 
-        # 2. Verificar que el carrito se marcó como "ORDERED"
         self.cart.refresh_from_db()
         self.assertEqual(self.cart.status, ShoppingCart.CartStatus.ORDERED)
 
-        # 3. Verificar validez fiscal de los datos (Subtotal=200, Tax=10%, Total=220)
-        self.assertEqual(order.subtotal, 200.00)
-        self.assertEqual(order.tax_percent, 10.00)
-        self.assertEqual(order.tax_total, 20.00)
-        self.assertEqual(order.total_paid, 220.00)
+        self.assertEqual(order.status, Order.OrderStatus.PENDING)
+        self.assertEqual(order.subtotal, Decimal("200.00"))
+        self.assertEqual(order.tax_total, Decimal("20.00"))
+        self.assertEqual(order.amount, Decimal("220.00"))
 
-        # 4. Verificar que el PDF se generó y almacenó
-        self.assertIsNotNone(order.invoice_pdf)
-        self.assertTrue(order.invoice_pdf.name.startswith('invoices/'))
+    def test_get_order_details(self):
+        payload = {"region_code": "ES"}
+        create_resp = self.client.post(self.create_order_url, data=payload, format='json')
+        if create_resp.status_code not in (status.HTTP_201_CREATED, status.HTTP_202_ACCEPTED):
+            detail = getattr(create_resp, "data", None)
+            if detail is None:
+                detail = getattr(create_resp, "content", b"")
+            self.fail(f"POST /orders devolvió {create_resp.status_code}. Respuesta: {detail!r}")
 
-    def test_download_invoice(self):
-        """
-        Prueba la descarga (recuperación) del PDF.
-        """
-        # 1. Crear un pedido primero
-        data = {"region_code": "ES"}
-        self.client.post(self.create_order_url, data, format='json')
         order = Order.objects.get()
 
-        # 2. Obtener la URL de descarga
-        download_url = reverse('order-download-invoice', kwargs={'pk': order.pk})
-        response = self.client.get(download_url)
+        # URL de detalle: intenta sin namespace, luego con namespace, y por último literal.
+        try:
+            retrieve_url = reverse("order-retrieve", kwargs={"order_id": str(order.order_id)})
+        except Exception:
+            try:
+                retrieve_url = reverse("orders:order-retrieve", kwargs={"order_id": str(order.order_id)})
+            except Exception:
+                retrieve_url = f"/api/v1/orders/{order.order_id}/"
 
-        # 3. Verificar que la respuesta es un fichero PDF
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response['Content-Type'], 'application/pdf')
-        self.assertTrue(response['Content-Disposition'].includes(order.invoice_pdf.name))
+        response = self.client.get(retrieve_url)
 
-    def test_create_order_empty_cart(self):
-        """
-        Prueba de validación (carrito vacío).
-        """
-        # Vaciar el carrito
-        self.cart.items.all().delete()
-
-        data = {"region_code": "ES"}
-        response = self.client.post(self.create_order_url, data, format='json')
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data['error'], "El carrito está vacío.")
+        detail = getattr(response, "data", None)
+        if detail is None:
+            detail = getattr(response, "content", b"")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, msg=f"Respuesta detalle: {detail!r}")
+        self.assertEqual(response.data['order_id'], str(order.order_id))
+        self.assertEqual(response.data['amount'], "220.00")

@@ -27,7 +27,7 @@ urlpatterns = [
     # Conecta todas las URLs de la app 'cart' bajo el prefijo 'api/v1/cart/'
     path('api/v1/', include('cart.urls')),
 
-    path('api/v1/', include('orders.urls')),
+    path('api/v1/', include(('orders.urls', 'orders'), namespace='orders')),
 
     path('api/v1/', include('payments.urls')),
 ]
