@@ -12,7 +12,7 @@ class Order(models.Model):
         PENDING = 'PENDING', 'Pendiente'
         COMPLETED = 'COMPLETED', 'Completado'
         FAILED = 'FAILED', 'Fallido'
-        REFUNED = 'REFUNED', 'Reembolsado'
+        REFUNDED = 'REFUNDED', 'Reembolsado'
 
     order_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)

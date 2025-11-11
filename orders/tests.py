@@ -24,67 +24,41 @@ class OrderRefactorTests(APITestCase):
 
         CartItem.objects.create(
             cart=self.cart,
-            product_id=101,
+            product_id=101, # <--- La versión corregida
             quantity=2,
             price_at_addition="100.00"
         )
 
-        # URL de creación: intenta sin namespace, luego con namespace, y por último literal.
-        try:
-            self.create_order_url = reverse("order-list-create")
-        except Exception:
-            try:
-                self.create_order_url = reverse("orders:order-list-create")
-            except Exception:
-                self.create_order_url = "/api/v1/orders/"
+        # Usamos la URL nueva
+        self.create_order_url = reverse("order-list-create")
 
     def test_create_order_from_cart(self):
         payload = {"region_code": "ES"}
         response = self.client.post(self.create_order_url, data=payload, format='json')
 
-        # Si falla, muestra el contenido de respuesta para ver el error real
-        if response.status_code not in (status.HTTP_201_CREATED, status.HTTP_202_ACCEPTED):
-            detail = getattr(response, "data", None)
-            if detail is None:
-                detail = getattr(response, "content", b"")
-            self.fail(f"POST /orders devolvió {response.status_code}. Respuesta: {detail!r}")
-
+        # Comprobamos la respuesta de la API nueva
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(Order.objects.count(), 1)
         order = Order.objects.get()
 
         self.cart.refresh_from_db()
         self.assertEqual(self.cart.status, ShoppingCart.CartStatus.ORDERED)
 
+        # Comprobamos los campos nuevos
         self.assertEqual(order.status, Order.OrderStatus.PENDING)
         self.assertEqual(order.subtotal, Decimal("200.00"))
         self.assertEqual(order.tax_total, Decimal("20.00"))
-        self.assertEqual(order.amount, Decimal("220.00"))
+        self.assertEqual(order.amount, Decimal("220.00")) # <- Campo 'amount'
 
     def test_get_order_details(self):
         payload = {"region_code": "ES"}
-        create_resp = self.client.post(self.create_order_url, data=payload, format='json')
-        if create_resp.status_code not in (status.HTTP_201_CREATED, status.HTTP_202_ACCEPTED):
-            detail = getattr(create_resp, "data", None)
-            if detail is None:
-                detail = getattr(create_resp, "content", b"")
-            self.fail(f"POST /orders devolvió {create_resp.status_code}. Respuesta: {detail!r}")
-
+        self.client.post(self.create_order_url, data=payload, format='json')
         order = Order.objects.get()
 
-        # URL de detalle: intenta sin namespace, luego con namespace, y por último literal.
-        try:
-            retrieve_url = reverse("order-retrieve", kwargs={"order_id": str(order.order_id)})
-        except Exception:
-            try:
-                retrieve_url = reverse("orders:order-retrieve", kwargs={"order_id": str(order.order_id)})
-            except Exception:
-                retrieve_url = f"/api/v1/orders/{order.order_id}/"
-
+        # Usamos la URL nueva
+        retrieve_url = reverse("order-retrieve", kwargs={"order_id": str(order.order_id)})
         response = self.client.get(retrieve_url)
 
-        detail = getattr(response, "data", None)
-        if detail is None:
-            detail = getattr(response, "content", b"")
-        self.assertEqual(response.status_code, status.HTTP_200_OK, msg=f"Respuesta detalle: {detail!r}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['order_id'], str(order.order_id))
-        self.assertEqual(response.data['amount'], "220.00")
+        self.assertEqual(response.data['amount'], "220.00") # <- Campo 'amount'
