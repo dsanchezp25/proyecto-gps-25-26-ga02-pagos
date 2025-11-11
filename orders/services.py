@@ -10,24 +10,6 @@ from pricing.services import calculate_cart_totals
 # Configurar un logger
 logger = logging.getLogger(__name__)
 
-def generate_invoice_pdf(order: Order):
-    """
-    Renderiza la plantilla HTML de la factura y la convierte en un PDF
-    Guarda el PDF en el campo invoice_pdf del pedido
-    """
-    try:
-        # 1. Renderizar la plantilla HTML
-        html_string = render_to_string('invoices/invoice.html', {'order': order})
-        # 2. Convertir HTML a PDF en memoria
-        pdf_file = HTML(string=html_string).write_pdf()
-        # 3. Crear un nombre de fichero
-        filename = f'factura_{order.order_id}.pdf'
-        # 4. Guardar el PDF en el campo FileField del pedido
-        order.invoice_pdf.save(filename, ContentFile(pdf_file), save=True)
-
-        logger.info(f"Factura PDF generada y guardada para el pedido {order.order_id}")
-    except Exception as e:
-        logger.error(f"Error al generar la factura PDF para el pedido {order.order_id}: {e}")
 
 def create_order_from_cart(user, region_code: str = None) -> Order:
     """
@@ -71,11 +53,8 @@ def create_order_from_cart(user, region_code: str = None) -> Order:
             )
         OrderItem.objects.bulk_create(order_items_to_create)
 
-        # 6. Generar la factura PDF
-        generate_invoice_pdf(order)
-
-        # 7. Marcar el carrito como completado
-        cart.status = ShoppingCart.Status.COMPLETED
+        # 6. Marcar el carrito como completado
+        cart.status = ShoppingCart.CartStatus.ORDERED
         cart.save()
 
         return order

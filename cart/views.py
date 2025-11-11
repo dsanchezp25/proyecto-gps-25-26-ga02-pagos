@@ -1,83 +1,87 @@
-from rest_framework import viewsets, mixins, status
-from rest_framework.response import Response
+from rest_framework import status, generics
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
 
 from .models import ShoppingCart, CartItem
-from .serializers import ShoppingCartSerializer, CartItemSerializer
+from .serializers import (
+    ShoppingCartSerializer,
+    CartItemAddSerializer,
+    CartItemDisplaySerializer
+)
 
-class CartItemViewSet(
-    mixins.CreateModelMixin, # POST (add item to cart)
-    mixins.UpdateModelMixin, # PUT/PATCH (update item quantity)
-    mixins.DestroyModelMixin, # DELETE (remove item from cart)
-    mixins.ListModelMixin, # GET (list items in cart)
-    viewsets.GenericViewSet
-):
+def get_or_create_cart(user):
+    """ Función helper para obtener/crear el carrito activo """
+    cart, created = ShoppingCart.objects.get_or_create(
+        user=user,
+        status=ShoppingCart.CartStatus.ACTIVE
+    )
+    return cart
+
+class CartRetrieveAPIView(generics.RetrieveAPIView):
     """
-    API para gestionar los Items del Carrito del usuario autenticado
-    - LISTAR (GET /api/v1/cart-items/): Lista los items de tu carrito.
-    - AÑADIR (POST /api/v1/cart-items/): Añade un item a tu carrito.
-    - ACTUALIZAR (PUT /api/v1/cart-items/<id>/): Actualiza la cantidad.
-    - ELIMINAR (DELETE /api/v1/cart-items/<id>/): Elimina un item.
+    Corresponde a: GET /api/v1/cart/
+    Obtiene el carrito completo del usuario, con totales e impuestos.
     """
-    serializer_class = CartItemSerializer
-    permission_classes = [IsAuthenticated] # Solo usuarios autenticados
+    permission_classes = [IsAuthenticated]
+    serializer_class = ShoppingCartSerializer
 
-    def get_queryset(self):
-        """
-        Sobreescribimos esto para CADA usuario vea SOLO sus items del carrito.
-        """
-        # Obtenemos el carrito del usuario autenticado
-        cart, created = ShoppingCart.objects.get_or_create(user=self.request.user)
-        # Devolvemos solo los items de ese carrito
-        return CartItem.objects.filter(cart=cart)
+    def get_object(self):
+        # Devuelve el carrito activo del usuario que hace la petición
+        return get_or_create_cart(self.request.user)
 
+    def get_serializer_context(self):
+        # Pasamos la 'region_code' del query param (ej. ?region=ES-CN)
+        # al serializer para que el servicio de pricing la use.
+        context = super().get_serializer_context()
+        context['region_code'] = self.request.query_params.get('region', None)
+        return context
+
+
+class CartItemAddAPIView(generics.CreateAPIView):
+    """
+    Corresponde a: POST /api/v1/cart/items/
+    Añade un item al carrito (o actualiza su cantidad si ya existe).
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = CartItemAddSerializer
+
+    # Sobrescribimos la funcion para manejar la lógica de añadir/actualizar
     def perform_create(self, serializer):
-        """
-        Sobreescribimos para asignar el carrito del usuario
-        automaticamente al añadir un item
-        """
-        cart, created = ShoppingCart.objects.get_or_create(user=self.request.user)
+        cart = get_or_create_cart(self.request.user)
 
-        # Antes de guardar, vemos si el producto ya existe en el carrito
-        product_id = serializer.validated_data['product_id']
-        quantity = serializer.validated_data['quantity', 1]
+        product_id = serializer.validated_data.get('product_id')
+        quantity = serializer.validated_data.get('quantity', 1)
 
         try:
             # Si ya existe, actualizamos la cantidad
-            existing_item = CartItem.objects.get(cart=cart, product_id=product_id)
-            existing_item.quantity += quantity
-            existing_item.price_at_addition = serializer.validated_data.get('price_at_addition')
-            existing_item.save()
-            # Acutalizamos el 'instance' para que no se cree un nuevo item
-            serializer.instance = existing_item
+            item = CartItem.objects.get(cart=cart, product_id=product_id)
+            item.quantity += quantity
+            item.price_at_addition = serializer.validated_data.get('price_at_addition')
+            item.save()
+            serializer.instance = item  # Devolvemos el item actualizado
         except CartItem.DoesNotExist:
-            # Si no existe, creamos uno nuevo
+            # Si no existe, lo creamos
             serializer.save(cart=cart)
 
-@action(detail=True, methods=['get'], url_path='summary')
-def get_cart_summary(self, request):
+    # Sobrescribimos para que la RESPUESTA use el serializer de Display
+    def get_serializer(self, *args, **kwargs):
+        # Sobrescribimos para que la RESPUESTA use el serializer de Display
+        if 'instance' in kwargs:
+            kwargs['context'] = self.get_serializer_context()
+            return CartItemDisplaySerializer(*args, **kwargs)
+        return super().get_serializer(*args, **kwargs)
+
+
+class CartItemDestroyAPIView(generics.DestroyAPIView):
     """
-    Endpoint extra para ver el carrito COMPLETO (summary)
-    GET /api/v1/cart-items/summary/
-
-    Se puede pasar la región como query param opcional 'region'
-    Ejemplo: /api/v1/cart-items/summary/?region=ES-CN
-
+    Corresponde a: DELETE /api/v1/cart/items/{item_id}/
+    Elimina un item específico del carrito.
     """
-    cart, created = ShoppingCart.objects.get_or_create(user=self.request.user)
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'pk'  # Usará el ID del CartItem
 
-    # 1. Obtener la región desde la url
-    region_code = request.query_params.get('region', None)
-
-    # 2. Preparar el 'context' para el serializer
-    serializer_context = {
-        'request': request,
-        'region_code': region_code
-    }
-
-    # 3. Serializar el carrito completo
-    serializer = ShoppingCartSerializer(cart, context=serializer_context)
-
-    return Response(serializer.data, status=status.HTTP_200_OK)
-
+    def get_queryset(self):
+        # Solo permite borrar items del carrito del propio usuario
+        cart = get_or_create_cart(self.request.user)
+        return CartItem.objects.filter(cart=cart)

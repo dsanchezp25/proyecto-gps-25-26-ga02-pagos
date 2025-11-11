@@ -1,12 +1,23 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from .views import CartItemViewSet
-
-# El Router de DRF crea automáticamente las URLs para
-# Listar, Añadir, Actualizar y Eliminar.
-router = DefaultRouter()
-router.register(r'cart-items', CartItemViewSet, basename='cart-item')
+from django.urls import path
+from .views import (
+    CartRetrieveAPIView,
+    CartItemAddAPIView,
+    CartItemDestroyAPIView
+)
 
 urlpatterns = [
-    path('', include(router.urls)),
+    # GET /api/v1/cart/ (Ver mi carrito con totales)
+    path('cart/',
+         CartRetrieveAPIView.as_view(),
+         name='cart-retrieve'),
+
+    # POSpip freeze > requirements.txtT /api/v1/cart/items/ (Añadir item al carrito)
+    path('cart/items/',
+         CartItemAddAPIView.as_view(),
+         name='cart-item-add'),
+
+    # DELETE /api/v1/cart/items/<pk>/ (Eliminar item del carrito)
+    path('cart/items/<int:pk>/',
+         CartItemDestroyAPIView.as_view(),
+         name='cart-item-destroy'),
 ]

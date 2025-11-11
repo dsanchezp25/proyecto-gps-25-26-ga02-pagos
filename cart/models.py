@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from decimal import Decimal
 
 class ShoppingCart(models.Model):
     """
@@ -49,7 +50,8 @@ class CartItem(models.Model):
     price_at_addition = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        help_text="Precio del producto al momento de agregar al carrito"
+        help_text="Precio del producto al momento de agregar al carrito",
+        default=Decimal('0.00')
     )
 
     class Meta:
