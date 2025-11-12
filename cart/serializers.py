@@ -1,12 +1,18 @@
 from rest_framework import serializers
 from .models import ShoppingCart, CartItem
 from pricing.services import calculate_cart_totals
+from decimal import Decimal
 
 # Serializer para añadir un ítem al carrito
 class CartItemAddSerializer(serializers.ModelSerializer):
+    price_at_addition = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=True  # Esto fuerza a que sea obligatorio
+    )
     class Meta:
         model = CartItem
-        fields = ['product_id', 'quantity']
+        fields = ['product_id', 'quantity', 'price_at_addition']
 
 # Serializer para mostrar el carrito completo
 class CartItemDisplaySerializer(serializers.ModelSerializer):
