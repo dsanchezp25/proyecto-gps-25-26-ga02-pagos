@@ -126,31 +126,33 @@ class PaymentIntentCreateAPIView(APIView):
         user = request.user
 
         try:
-            # 1. Validar que la Orden existe y es del usuario
+            # 1. Validar la Orden
             order = Order.objects.get(
                 order_id=order_id,
                 user=user,
                 status=Order.OrderStatus.PENDING
             )
 
-            # 2. Validar que el Método de Pago existe y es del usuario
+            # 2. Validar el Método de Pago
             payment_method = PaymentMethod.objects.get(
                 payment_method_id=payment_method_id,
                 user=user
             )
 
-            # 3. Convertir el 'amount' (Decimal) a céntimos (integer) para Stripe
+            # 3. Convertir a céntimos
             amount_in_cents = int(order.amount * 100)
 
             # 4. Crear el Payment Intent en Stripe
             intent = stripe.PaymentIntent.create(
                 amount=amount_in_cents,
                 currency=order.currency.lower(),
-                customer=None,  # TODO: Añadir stripe_customer_id del perfil de usuario
+                customer=None,  # TODO: Añadir stripe_customer_id
                 payment_method=payment_method.psp_ref,  # El 'pm_...' REAL de Stripe
-                confirm=True,  # Intentamos confirmar el pago inmediatamente
-                automatic_payment_methods={"enabled": True, "allow_redirects": "never"},  # Para pagos "off-session"
+                confirm=True,
+                automatic_payment_methods={"enabled": True, "allow_redirects": "never"},
                 description=f"Pago por Orden {order.order_id}",
+                # (Añadido 'usage' para reutilizar tarjetas de prueba)
+                usage='off_session'
             )
 
             # 5. Devolver el client_secret
@@ -168,11 +170,20 @@ class PaymentIntentCreateAPIView(APIView):
             return Response({"error": "Orden no encontrada o ya procesada."}, status=status.HTTP_404_NOT_FOUND)
         except PaymentMethod.DoesNotExist:
             return Response({"error": "Método de pago no encontrado."}, status=status.HTTP_404_NOT_FOUND)
-        except stripe.error.CardError as e:
+
+            # --- BLOQUE DE EXCEPCIONES CORREGIDO ---
+            # (Quitamos el ".error" de las excepciones de Stripe)
+
+        except stripe.CardError as e:  # <- CORREGIDO
             # El pago fue declinado por la tarjeta
             logger.warning(f"Pago (CardError) fallido para orden {order_id}: {e.user_message}")
             return Response({"error": e.user_message}, status=status.HTTP_402_PAYMENT_REQUIRED)
-        except stripe.error.StripeError as e:
+
+        except stripe.InvalidRequestError as e:  # <- CORREGIDO
+            logger.warning(f"Pago (InvalidRequest) fallido para orden {order_id}: {e.user_message}")
+            return Response({"error": e.user_message}, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+        except stripe.StripeError as e:  # <- CORREGIDO (Captura genérica)
             logger.error(f"Error de Stripe al crear PaymentIntent: {e}")
             return Response({"error": "Error del proveedor de pago"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
