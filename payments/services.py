@@ -6,7 +6,7 @@ from django.core.files.base import ContentFile
 from weasyprint import HTML
 from django.db import transaction
 
-from orders.models import Order, Invoice
+from orders.models import Order, Invoice  # <-- ¡Importar Invoice!
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def generate_invoice_pdf_for_order(order: Order):
 
     except Exception as e:
         logger.error(f"Error al generar PDF para Pedido {order.order_id}: {e}")
-        raise  # Lanzamos el error para que el webhook falle si es necesario
+        raise
 
 
 def handle_payment_intent_succeeded(event_data):
@@ -42,16 +42,17 @@ def handle_payment_intent_succeeded(event_data):
     payment_id = payment_intent['id']
     amount_received = Decimal(payment_intent['amount_received']) / 100
 
-    # TODO: Aquí deberíamos buscar la 'order_id' que guardamos
-    # cuando creamos el PaymentIntent (en sus metadatos).
-    # Por ahora, buscamos la orden por el 'amount' (¡NO ES SEGURO, SOLO PARA PRUEBAS!)
+    # En un proyecto real, buscaríamos la 'order_id' en los 'metadata'
+    # del payment_intent, que habríamos añadido en el Paso 21.
 
+    # --- SIMULACIÓN (buscar por importe) ---
+    # Esto es peligroso en producción, pero vale para probar.
     try:
         with transaction.atomic():
+            # Buscamos la orden PENDIENTE que coincida con el importe
             order = Order.objects.select_for_update().get(
                 amount=amount_received,
                 status=Order.OrderStatus.PENDING
-                # TODO: ...y filtrar por usuario o ID
             )
 
             # 1. Marcar la orden como Pagada
@@ -81,4 +82,4 @@ def handle_payment_intent_failed(event_data):
     logger.warning(
         f"Webhook: Pago fallido {payment_intent['id']}. Razón: {payment_intent['last_payment_error']['message']}")
     # order.status = Order.OrderStatus.FAILED
-    # order.save()
+    # order.save(

@@ -136,4 +136,4 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # Claves de Stripe
 STRIPE_PUBLIC_KEY = 'pk_test_51SQuQkQ8xFyNYu2kI8s8zvN0dWFpOBFiCZsJkdGtcxa9d3DMWObk9LKKdQHBt6r3ZwDCSUMrURmtinlZAsZjFzjM00oUErTOKZ' # Reemplaza con tu clave pública de Stripe
 STRIPE_SECRET_KEY = "sk_test_51SQuQkQ8xFyNYu2kTrRPeKWdWooQbkCDfCO3mZkdDUrnQOCFSeJg1bsYABrMalbSWjiRZv305oKDYn1iedFwNgNZ00IoygC4T5" # Reemplaza con tu clave secreta de Stripe
-STRIPE_WEBHOOK_SECRET = "whsec_..." # Lo usaremos para el webhook
+STRIPE_WEBHOOK_SECRET = "hsec_4fbfa2d03733ddff374e31a726febac988aa80c0874075675982c8da56cec140" # Lo usaremos para el webhook
