@@ -54,7 +54,7 @@ class OrderItem(models.Model):
         help_text="Precio por unidad en el momento de la compra",
         default=0.00
     )
-    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items' )
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='lines' )
     product_id = models.IntegerField()
     quantity = models.PositiveIntegerField()
     unit_price = models.DecimalField(max_digits=10, decimal_places=2, help_text='Unidad del producto')

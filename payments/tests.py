@@ -4,7 +4,7 @@ from rest_framework import status
 from django.urls import reverse
 from unittest.mock import patch  # <-- Importante para "engañar" a Stripe
 
-from .models import PaymentMethod
+from payments.models import PaymentMethod
 
 User = get_user_model()
 

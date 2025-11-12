@@ -3,9 +3,9 @@ from rest_framework.test import APITestCase
 from rest_framework import status
 from django.urls import reverse
 from decimal import Decimal
-from .views import get_or_create_cart  # <-- Importamos la función helper
+from cart.views import get_or_create_cart  # <-- Importamos la función helper
 
-from .models import ShoppingCart, CartItem
+from cart.models import ShoppingCart, CartItem
 from pricing.models import TaxRate, RegionTaxRule
 
 User = get_user_model()

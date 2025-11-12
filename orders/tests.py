@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from cart.models import ShoppingCart, CartItem
 from pricing.models import TaxRate, RegionTaxRule
-from .models import Order, OrderItem
+from orders.models import Order, OrderItem
 
 User = get_user_model()
 
@@ -30,7 +30,7 @@ class OrderRefactorTests(APITestCase):
         )
 
         # Usamos la URL nueva
-        self.create_order_url = reverse("order-list-create")
+        self.create_order_url = reverse("orders:order-list-create")
 
     def test_create_order_from_cart(self):
         payload = {"region_code": "ES"}
@@ -56,7 +56,7 @@ class OrderRefactorTests(APITestCase):
         order = Order.objects.get()
 
         # Usamos la URL nueva
-        retrieve_url = reverse("order-retrieve", kwargs={"order_id": str(order.order_id)})
+        retrieve_url = reverse('orders:order-retrieve', kwargs={'order_id': order.order_id})
         response = self.client.get(retrieve_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

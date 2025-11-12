@@ -14,5 +14,5 @@ urlpatterns = [
         OrderRetrieveAPIView.as_view(),
         name="order-retrieve",
     ),
-    # TODO: endpoint para descargar el PDF más adelante.
+
 ]
