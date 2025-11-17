@@ -7,7 +7,7 @@
 # Misc
 .idea
 .DS_Store
-
+# stripe id account: acct_1SQuQkQ8xFyNYu2k
 # Cached files
 */_pycache_
 *.pyc
