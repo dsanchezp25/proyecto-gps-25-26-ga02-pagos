@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db import transaction
+from django.http import Http404
 
 from .models import Order, OrderItem
 from cart.models import ShoppingCart  # Necesitamos el carrito para crearlo
@@ -91,6 +92,8 @@ class OrderListCreateAPIView(APIView):
             # El .yml dice 202 (Accepted), lo cual es correcto
             return Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
 
+        except Http404:
+            return Response({"error": "No se encontró un carrito activo para procesar."}, status=status.HTTP_404_NOT_FOUND)
         except ShoppingCart.DoesNotExist:
             return Response({"error": "No se encontró un carrito activo."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:

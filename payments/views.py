@@ -8,7 +8,8 @@ import logging
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-from .models import PaymentMethod
+from django.db import transaction
+from .models import PaymentMethod, Customer
 from .serializers import (
     AddPaymentMethodRequestSerializer,
     PaymentMethodSerializer,
@@ -16,11 +17,51 @@ from .serializers import (
     PaymentIntentResponseSerializer,
 )
 from orders.models import Order
+# ¡¡IMPORTANTE!! Asegúrate de que tu 'services.py' SÍ tiene estas funciones
 from .services import handle_payment_intent_failed, handle_payment_intent_succeeded
 
 # Configurar Stripe
 stripe.api_key = settings.STRIPE_SECRET_KEY
 logger = logging.getLogger(__name__)
+
+
+def get_or_create_stripe_customer(user):
+    """
+    Busca o crea un Customer en nuestra BBDD y en Stripe.
+    Versión robusta que comprueba si el cliente existe en Stripe.
+    """
+    try:
+        # 1. Busca en nuestra BBDD
+        customer = Customer.objects.get(user=user)
+
+        # 2. Verificamos si el cliente AÚN EXISTE en Stripe
+        try:
+            stripe.Customer.retrieve(customer.stripe_customer_id)
+            return customer.stripe_customer_id
+
+        except stripe.InvalidRequestError:
+            # 3. ¡El cliente NO existe en Stripe! (Error 'No such customer')
+            logger.warning(f"Borrando Customer local 'stale' {customer.stripe_customer_id} para user {user.id}")
+            customer.delete()
+            raise Customer.DoesNotExist  # Forzamos que vaya al bloque 'except'
+
+    except Customer.DoesNotExist:
+        # 4. Si no existe (o lo acabamos de borrar), lo crea en Stripe
+        try:
+            stripe_customer = stripe.Customer.create(
+                email=user.email if user.email else None,  # Asegurarse de que el email no es None
+                name=user.username,
+                description=f"Cliente Django (ID: {user.id})"
+            )
+            customer = Customer.objects.create(
+                user=user,
+                stripe_customer_id=stripe_customer.id
+            )
+            return customer.stripe_customer_id
+
+        except stripe.StripeError as e:
+            logger.error(f"Error creando Customer en Stripe para user {user.id}: {e}")
+            raise
 
 
 class PaymentMethodListCreateAPIView(generics.ListCreateAPIView):
@@ -37,11 +78,9 @@ class PaymentMethodListCreateAPIView(generics.ListCreateAPIView):
         return PaymentMethodSerializer
 
     def get_queryset(self):
-        # GET: Devuelve solo los métodos del usuario autenticado
         return PaymentMethod.objects.filter(user=self.request.user)
 
     def post(self, request, *args, **kwargs):
-        # POST: Añade un nuevo método de pago
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -51,67 +90,57 @@ class PaymentMethodListCreateAPIView(generics.ListCreateAPIView):
         user = request.user
 
         try:
-            # 1. Obtenemos los detalles de la tarjeta desde Stripe
-            # Esto nos da el 'last4', 'brand', 'exp_month', 'exp_year'
-            pm = stripe.PaymentMethod.retrieve(token)
+            customer_id = get_or_create_stripe_customer(user)
 
-            # 2. (Opcional) Adjuntamos el método de pago al Customer de Stripe
-            # customer_id = user.profile.stripe_customer_id
-            # stripe.PaymentMethod.attach(token, customer=customer_id)
+            # 1. Adjuntamos el token al cliente. ESTO "gasta" el token.
+            attached_pm = stripe.PaymentMethod.attach(token, customer=customer_id)
 
-            # 3. Guardamos los metadatos (¡nunca el CVV o el nº completo!)
-            new_pm = PaymentMethod.objects.create(
-                user=user,
-                payment_method_id=f"pm_{user.id}_{pm.card.last4}",  # ID interno simple
-                psp_ref=pm.id,  # El 'pm_...' de Stripe
-                brand=pm.card.brand,
-                last4=pm.card.last4,
-                exp_mm=pm.card.exp_month,
-                exp_yy=pm.card.exp_year,
-                is_default=make_default,
-            )
-
-            # Si es el nuevo default, quitamos el default anterior
+            # 2. Si es default, usamos el ID del OBJETO ADJUNTO (attached_pm.id)
             if make_default:
-                PaymentMethod.objects.filter(user=user).exclude(pk=new_pm.pk).update(is_default=False)
+                stripe.Customer.modify(
+                    customer_id,
+                    invoice_settings={'default_payment_method': attached_pm.id},
+                )
+
+            with transaction.atomic():
+                new_pm = PaymentMethod.objects.create(
+                    user=user,
+                    payment_method_id=f"pm_{user.id}_{attached_pm.card.last4}",
+                    psp_ref=attached_pm.id,  # <-- Usamos el ID permanente
+                    brand=attached_pm.card.brand,
+                    last4=attached_pm.card.last4,
+                    exp_mm=attached_pm.card.exp_month,
+                    exp_yy=attached_pm.card.exp_year,
+                    is_default=make_default,
+                )
+                if make_default:
+                    PaymentMethod.objects.filter(user=user).exclude(pk=new_pm.pk).update(is_default=False)
 
             response_serializer = PaymentMethodSerializer(new_pm)
             return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
-        except stripe.error.StripeError as e:
-            logger.error(f"Error de Stripe al añadir PM: {e}")
-            return Response({"error": "Error del proveedor de pago"}, status=status.HTTP_400_BAD_REQUEST)
+        except stripe.StripeError as e:
+            return Response({"error": e.user_message or str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Error interno al añadir PM: {e}")
             return Response({"error": "Error interno del servidor"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class PaymentMethodDestroyAPIView(generics.DestroyAPIView):
-    """
-    Corresponde a: DELETE /api/v1/payment-methods/{pm_id}/
-    """
     permission_classes = [IsAuthenticated]
-    lookup_field = 'payment_method_id'  # Usamos nuestro ID interno (pm_abc)
+    lookup_field = 'payment_method_id'
 
     def get_queryset(self):
-        # Solo permite borrar métodos del propio usuario
         return PaymentMethod.objects.filter(user=self.request.user)
 
     def perform_destroy(self, instance):
-        # TODO: Des-adjuntar el método del Customer en Stripe
-        # try:
-        #    stripe.PaymentMethod.detach(instance.psp_ref)
-        # except Exception as e:
-        #    logger.warning(f"No se pudo des-adjuntar PM de Stripe: {e}")
-
+        try:
+            stripe.PaymentMethod.detach(instance.psp_ref)
+        except Exception as e:
+            logger.warning(f"No se pudo des-adjuntar PM de Stripe: {e}")
         instance.delete()
 
 
 class PaymentIntentCreateAPIView(APIView):
-    """
-        Corresponde a: POST /api/v1/payments/intent
-        Crea una "intención de pago" en el PSP (Stripe).
-        """
     permission_classes = [IsAuthenticated]
     serializer_class = PaymentIntentRequestSerializer
 
@@ -120,117 +149,84 @@ class PaymentIntentCreateAPIView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        validated_data = serializer.validated_data
-        order_id = validated_data['order_id']
-        payment_method_id = validated_data['payment_method_id']  # ID interno (pm_abc)
+        order_id = serializer.validated_data['order_id']
+        pm_internal_id = serializer.validated_data['payment_method_id']
         user = request.user
 
         try:
-            # 1. Validar la Orden
-            order = Order.objects.get(
-                order_id=order_id,
-                user=user,
-                status=Order.OrderStatus.PENDING
-            )
-
-            # 2. Validar el Método de Pago
-            payment_method = PaymentMethod.objects.get(
-                payment_method_id=payment_method_id,
-                user=user
-            )
-
-            # 3. Convertir a céntimos
+            order = Order.objects.get(order_id=order_id, user=user, status=Order.OrderStatus.PENDING)
+            pm = PaymentMethod.objects.get(payment_method_id=pm_internal_id, user=user)
+            customer_id = get_or_create_stripe_customer(user)
             amount_in_cents = int(order.amount * 100)
 
-            # 4. Crear el Payment Intent en Stripe
+            # Creamos el PaymentIntent USANDO el customer_id y el pm.psp_ref
             intent = stripe.PaymentIntent.create(
                 amount=amount_in_cents,
                 currency=order.currency.lower(),
-                customer=None,  # TODO: Añadir stripe_customer_id
-                payment_method=payment_method.psp_ref,  # El 'pm_...' REAL de Stripe
-                confirm=True,
-                automatic_payment_methods={"enabled": True, "allow_redirects": "never"},
+                customer=customer_id,
+                payment_method=pm.psp_ref,  # El ID 'pm_...' permanente
+                confirm=True,  # Intentar el pago ahora
+                off_session=True,  # Indicar que el cliente no está presente
                 description=f"Pago por Orden {order.order_id}",
-                # (Añadido 'usage' para reutilizar tarjetas de prueba)
-                usage='off_session'
+                metadata={"order_id": str(order.order_id), "user_id": str(user.id)},
             )
 
-            # 5. Devolver el client_secret
             response_data = {
                 "provider": "stripe",
                 "client_secret": intent.client_secret,
-                "payment_id": intent.id
+                "payment_id": intent.id,
             }
-            response_serializer = PaymentIntentResponseSerializer(data=response_data)
-            response_serializer.is_valid(raise_exception=True)
-
-            return Response(response_serializer.data, status=status.HTTP_200_OK)
+            resp_ser = PaymentIntentResponseSerializer(data=response_data)
+            resp_ser.is_valid(raise_exception=True)
+            return Response(resp_ser.data, status=200)
 
         except Order.DoesNotExist:
-            return Response({"error": "Orden no encontrada o ya procesada."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "Orden no encontrada o ya procesada."}, status=404)
         except PaymentMethod.DoesNotExist:
-            return Response({"error": "Método de pago no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "Método de pago no encontrado."}, status=404)
 
-            # --- BLOQUE DE EXCEPCIONES CORREGIDO ---
-            # (Quitamos el ".error" de las excepciones de Stripe)
+        except stripe.CardError as e:
+            return Response({"error": e.user_message}, status=402)
+        except stripe.InvalidRequestError as e:
+            return Response({"error": e.user_message}, status=402)
+        except stripe.StripeError as e:
+            return Response({"error": "Error del proveedor de pago"}, status=500)
 
-        except stripe.CardError as e:  # <- CORREGIDO
-            # El pago fue declinado por la tarjeta
-            logger.warning(f"Pago (CardError) fallido para orden {order_id}: {e.user_message}")
-            return Response({"error": e.user_message}, status=status.HTTP_402_PAYMENT_REQUIRED)
 
-        except stripe.InvalidRequestError as e:  # <- CORREGIDO
-            logger.warning(f"Pago (InvalidRequest) fallido para orden {order_id}: {e.user_message}")
-            return Response({"error": e.user_message}, status=status.HTTP_402_PAYMENT_REQUIRED)
-
-        except stripe.StripeError as e:  # <- CORREGIDO (Captura genérica)
-            logger.error(f"Error de Stripe al crear PaymentIntent: {e}")
-            return Response({"error": "Error del proveedor de pago"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-@method_decorator(csrf_exempt, name='dispatch')  # Desactivar CSRF para este endpoint
+@method_decorator(csrf_exempt, name='dispatch')
 class StripeWebhookAPIView(APIView):
-    """
-    Corresponde a: POST /api/v1/webhooks/stripe
-    Recibe eventos de Stripe.
-    """
-    permission_classes = [AllowAny]  # Stripe no envía token de autenticación
+    permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
         payload = request.body
         sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
         webhook_secret = settings.STRIPE_WEBHOOK_SECRET
 
+        if not webhook_secret:
+            logger.error("Webhook: STRIPE_WEBHOOK_SECRET no está configurada.")
+            return Response({"error": "Webhook secret no configurado"}, status=500)
+
         try:
-            # 1. Verificar la firma de Stripe
             event = stripe.Webhook.construct_event(
                 payload, sig_header, webhook_secret
             )
         except ValueError as e:
-            # Payload inválido
             logger.warning(f"Webhook (ValueError): {e}")
             return Response(status=status.HTTP_400_BAD_REQUEST)
-        except stripe.error.SignatureVerificationError as e:
-            # Firma inválida
+        except stripe.SignatureVerificationError as e:
             logger.warning(f"Webhook (SignatureError): {e}")
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        # 2. Obtener los datos del evento
         event_type = event['type']
         event_data = event['data']
 
-        # 3. Manejar el evento
         if event_type == 'payment_intent.succeeded':
             logger.info("Webhook: Recibido 'payment_intent.succeeded'")
             handle_payment_intent_succeeded(event_data)
-
         elif event_type == 'payment_intent.payment_failed':
             logger.warning("Webhook: Recibido 'payment_intent.payment_failed'")
             handle_payment_intent_failed(event_data)
-
-        # ... (manejar otros eventos como 'subscription.updated', etc.)
-
         else:
             logger.info(f"Webhook: Evento no manejado: {event_type}")
 
-        # 4. Devolver 200 a Stripe para confirmar recepción
         return Response(status=status.HTTP_200_OK)

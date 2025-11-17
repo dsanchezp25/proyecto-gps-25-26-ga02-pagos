@@ -12,10 +12,19 @@ from .serializers import (
 
 def get_or_create_cart(user):
     """ Función helper para obtener/crear el carrito activo """
-    cart, created = ShoppingCart.objects.get_or_create(
-        user=user,
-        status=ShoppingCart.CartStatus.ACTIVE
-    )
+    try:
+        # 1. Intenta obtener el carrito activo
+        cart = ShoppingCart.objects.get(user=user, status=ShoppingCart.CartStatus.ACTIVE)
+    except ShoppingCart.DoesNotExist:
+        # 2. Si no existe, busca si hay uno 'ORDERED'
+        ShoppingCart.objects.filter(
+            user=user,
+            status=ShoppingCart.CartStatus.ORDERED
+        ).delete()
+
+        # 3. (Ya sea que no existía o que borramos el 'ORDERED'), creamos uno nuevo
+        cart = ShoppingCart.objects.create(user=user, status=ShoppingCart.CartStatus.ACTIVE)
+
     return cart
 
 class CartRetrieveAPIView(generics.RetrieveAPIView):
