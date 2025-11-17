@@ -10,7 +10,7 @@ class Order(models.Model):
     """
     class OrderStatus(models.TextChoices):
         PENDING = 'PENDING', 'Pendiente'
-        COMPLETED = 'COMPLETED', 'Completado'
+        PAID = 'PAID', 'Pagado'
         FAILED = 'FAILED', 'Fallido'
         REFUNDED = 'REFUNDED', 'Reembolsado'
 
