@@ -1,47 +1,24 @@
-name: SonarCloud
+name: build
 
 on:
   push:
     branches:
       - main
-      - develop
+      - develop      # ← añadido
   pull_request:
-    branches:
-      - main
-      - develop
+    types: [opened, synchronize, reopened]
 
 jobs:
-  build:
-    name: Build and analyze
-    runs-on: ubuntu-latest
+  sonarqube:
+    name: SonarQube
+    runs-on: windows-latest
 
     steps:
-      # 1) Descargar el código del repo
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Recomendado por Sonar para mejor análisis
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
 
-      # 2) Instalar Python
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'   # versión típica compatible con Django
-
-      # 3) Instalar dependencias
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
-      # (Opcional) Ejecutar tests de Django si los tienes configurados
-      - name: Run tests
-        run: |
-          python manage.py test
-
-      # 4) Análisis de SonarCloud
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@v2
+      - name: SonarQube Scan
+        uses: SonarSource/sonarcloud-github-action@v2   # o el que te ponga SonarCloud
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # lo da GitHub automáticamente
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}    # lo has creado tú en Settings → Secrets
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
