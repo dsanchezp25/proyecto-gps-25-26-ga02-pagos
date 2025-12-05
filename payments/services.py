@@ -20,7 +20,7 @@ def generate_invoice_pdf_for_order(order: Order):
         pdf_file = HTML(string=html_string).write_pdf()
         filename = f'factura_{order.order_id}.pdf'
 
-        invoice, created = Invoice.objects.get_or_create(order=order)
+        invoice, _ = Invoice.objects.get_or_create(order=order)
         invoice.invoice_pdf.save(filename, ContentFile(pdf_file), save=True)
 
         logger.info(f"Factura PDF generada y guardada para Pedido {order.order_id}")
