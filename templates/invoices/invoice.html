@@ -54,21 +54,25 @@
             </tbody>
         </table>
 
-        <table class="totals-table">
-            <tr>
-                <td>Subtotal:</td>
-                <td>{{ order.subtotal | floatformat:2 }} €</td>
-            </tr>
-            <tr>
-                <td>IVA ({{ order.tax_rate }}%):</td>
-                <td>{{ order.tax_amount | floatformat:2 }} €</td>
-            </tr>
-            <tr class="total">
-                <td>Total:</td>
-                <td>{{ order.total | floatformat:2 }} €</td>
-            </tr>
-        </table>
+        <table class="item-table">
+            <thead>
+                <tr>
+                    <th>Descripción</th>
+                    <th>Cantidad</th>
+                    <th>Precio Unitario</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
 
+            <tbody>
+                <tr>
+                    <td>{{ item.description }}</td>
+                    <td>{{ item.quantity }}</td>
+                    <td>{{ item.unit_price }}</td>
+                    <td>{{ item.total_price }}</td>
+                </tr>
+            </tbody>
+        </table>
 
 
     </div>
